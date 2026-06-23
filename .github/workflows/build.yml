@@ -28,4 +28,7 @@ jobs:
           docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
           docker push riley280/tic-tac-toe:latest
         env:
-          Docker_CLI_ACI: 1          
+          Docker_CLI_ACI: 1     
+      - name:Image scan
+      run: trivy image riley280/tic-tac-toe:latest > trivyimage.txt
+      
