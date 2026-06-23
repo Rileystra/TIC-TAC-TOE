@@ -1,5 +1,4 @@
-
-      name: Build,Analyze,scan
+name: Build,Analyze,scan
 on:
   push:
     branches:
@@ -18,4 +17,5 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
 
