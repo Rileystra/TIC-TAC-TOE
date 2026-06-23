@@ -1,106 +1,66 @@
-name: Build, Analyze, Scan and Deploy
+name: Build,Analyze,scan
 
 on:
   push:
     branches:
       - main
 
-env:
-  IMAGE_NAME: riley280/tic-tac-toe
-  IMAGE_TAG: latest
-
 jobs:
   build-analyze-scan:
-    name: Build, Analyze and Scan
+    name: Build
     runs-on: [self-hosted]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
         with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Install npm dependencies
-        run: npm install
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
       - name: Build and analyze with SonarQube
         uses: sonarsource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=Tic-game
-            -Dsonar.projectName=Tic-game
-            -Dsonar.sources=.
-            -Dsonar.exclusions=node_modules/**,build/**,dist/**,coverage/**
+
+      - name: npm install dependency
+        run: npm install
 
       - name: Trivy file scan
-        run: trivy fs . --format table --output trivyfs.txt
+        run: trivy fs . > trivyfs.txt
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Docker Build and push
+        run: |
+          docker build -t tic-tac-toe .
+          docker tag tic-tac-toe sevenajay/tic-tac-toe:latest
+          docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+          docker push sevenajay/tic-tac-toe:latest
+        env:
+          DOCKER_CLI_ACI: 1
 
-      - name: Docker build
-        run: docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-
-      - name: Trivy image scan
-        run: trivy image ${IMAGE_NAME}:${IMAGE_TAG} --format table --output trivyimage.txt
-
-      - name: Docker push
-        run: docker push ${IMAGE_NAME}:${IMAGE_TAG}
-
-      - name: Upload Trivy reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-reports
-          path: |
-            trivyfs.txt
-            trivyimage.txt
+      - name: Image scan
+        run: trivy image sevenajay/tic-tac-toe:latest > trivyimage.txt
 
   deploy:
-    name: Deploy
     needs: build-analyze-scan
     runs-on: [self-hosted]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: docker pull image
+        run: docker pull riley280/tic-tac-toe:latest
 
-      - name: Docker pull image
-        run: docker pull ${IMAGE_NAME}:${IMAGE_TAG}
+      - name: Image scan
+        run: trivy image riley280/tic-tac-toe:latest > trivyimagedeploy.txt
 
-      - name: Trivy image scan before deploy
-        run: trivy image ${IMAGE_NAME}:${IMAGE_TAG} --format table --output trivyimagedeploy.txt
-
-      - name: Deploy to Docker container
-        run: |
-          docker rm -f game || true
-          docker run -d --name game -p 3000:3000 ${IMAGE_NAME}:${IMAGE_TAG}
+      - name: Deploy to container
+        run: docker run -d --name game -p 3000:3000 riley280/tic-tac-toe:latest
 
       - name: Update kubeconfig
         run: aws eks --region eu-west-2 update-kubeconfig --name EKS_CLOUD
 
-      - name: Deploy to Kubernetes
+      - name: Deploy to kubernetes
         run: kubectl apply -f deployment-service.yml
 
-      - name: Upload deploy Trivy report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-deploy-report
-          path: trivyimagedeploy.txt
-
-      - name: Send Slack Notification
+      - name: Send a Slack Notification
         if: always()
         uses: act10ns/slack@v1
         with:
@@ -109,7 +69,5 @@ jobs:
           channel: '#githubaction-eks'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-
 
         
